@@ -1,0 +1,2174 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Byte AI — Interactive Twitch Co-Host & OBS Overlay</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+  <!-- tmi.js for Live Twitch Chat IRC -->
+  <script src="https://github.com/tmijs/tmi.js/releases/download/v1.8.5/tmi.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+            display: ['Orbitron', 'sans-serif']
+          },
+          colors: {
+            cyber: {
+              cyan: '#00f3ff',
+              pink: '#ff007f',
+              yellow: '#fcee0a',
+              purple: '#b829ff'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* Stage Background Themes */
+    .bg-theme-cyberpunk {
+      background: radial-gradient(circle at 50% 35%, #1e1b4b 0%, #090d16 65%, #020617 100%);
+    }
+    .bg-theme-arcade {
+      background: radial-gradient(circle at 50% 30%, #4a044e 0%, #1e1b4b 60%, #090514 100%);
+    }
+    .bg-theme-zen {
+      background: radial-gradient(circle at 50% 35%, #064e3b 0%, #022c22 65%, #02100d 100%);
+    }
+    .bg-theme-matrix {
+      background: radial-gradient(circle at 50% 35%, #052e16 0%, #02140a 65%, #000804 100%);
+    }
+    .bg-theme-chroma {
+      background: #00ff00 !important;
+    }
+
+    /* Perspective Cyber Grid */
+    .bg-grid {
+      background-size: 40px 40px;
+      background-image:
+        linear-gradient(to right, rgba(0, 243, 255, 0.1) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 0, 127, 0.1) 1px, transparent 1px);
+    }
+
+    /* CRT Scanlines Overlay */
+    .crt-scanlines {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%,
+        rgba(0, 0, 0, 0.32) 50%
+      );
+      background-size: 100% 4px;
+    }
+
+    /* Floating & Glitch Avatar Animations */
+    @keyframes floatBot {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-10px) rotate(1deg); }
+    }
+    @keyframes glitchShake {
+      0%, 100% { transform: translate(0, 0) skew(0deg); }
+      20% { transform: translate(-5px, 3px) skew(-4deg); }
+      40% { transform: translate(5px, -3px) skew(4deg); }
+      60% { transform: translate(-4px, -2px) skew(-2deg); }
+      80% { transform: translate(4px, 2px) skew(3deg); }
+    }
+    @keyframes panicJitter {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-3px, 2px); }
+      50% { transform: translate(3px, -2px); }
+      75% { transform: translate(-2px, -3px); }
+    }
+    @keyframes hypeBounce {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-16px) scale(1.06); }
+    }
+
+    .anim-float { animation: floatBot 4s ease-in-out infinite; }
+    .anim-glitch { animation: glitchShake 0.28s ease-in-out infinite; }
+    .anim-panic { animation: panicJitter 0.14s linear infinite; }
+    .anim-hype { animation: hypeBounce 0.45s ease-in-out infinite; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    ::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.35); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0, 243, 255, 0.6); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col overflow-x-hidden select-none">
+
+  <!-- =======================================================================
+       TOP NAVIGATION & TELEMETRY HEADER (HIDDEN IN OBS OVERLAY MODE)
+       ======================================================================= -->
+  <header id="appHeader" class="h-14 bg-slate-900/95 border-b border-cyan-500/30 px-4 flex items-center justify-between z-30 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-cyber-cyan to-cyber-pink p-0.5 shadow-lg shadow-cyan-500/20">
+        <div class="w-full h-full bg-slate-950 rounded-[7px] flex items-center justify-center">
+          <i class="fa-solid fa-robot text-cyber-cyan text-lg"></i>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-display font-bold text-sm sm:text-base tracking-wider text-white">BYTE_OS <span class="text-cyber-cyan">v4.0</span></h1>
+          <span class="px-2 py-0.5 text-[10px] font-mono rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE CO-HOST
+          </span>
+        </div>
+        <p class="text-[11px] font-mono text-slate-400 hidden sm:block">Autonomous Twitch Persona • Auto Win/Loss Sentiment • Gemini 2.5 Audio</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 sm:gap-3">
+      <div class="hidden md:flex items-center gap-3 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-mono">
+        <div>BRAIN: <span id="apiStatusBadge" class="text-cyber-cyan font-semibold">GEMINI 3 FLASH</span></div>
+        <span class="text-slate-700">|</span>
+        <div>VOICE: <span id="ttsEngineBadge" class="text-emerald-400 font-semibold">GEMINI 2.5 AUDIO (ACHIRD)</span></div>
+      </div>
+
+      <button onclick="replayLastSpeech()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 flex items-center gap-1.5 transition" title="Replay Byte's last spoken line">
+        <i class="fa-solid fa-rotate-right"></i> <span class="hidden sm:inline">Replay</span>
+      </button>
+
+      <button id="audioMuteBtn" onclick="toggleAudioMute()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-emerald-300 flex items-center gap-1.5 transition">
+        <i id="audioMuteIcon" class="fa-solid fa-volume-high"></i> <span id="audioMuteText" class="hidden sm:inline">Audio ON</span>
+      </button>
+
+      <button onclick="toggleObsMode()" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyber-pink to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-mono text-xs font-bold shadow-lg shadow-pink-500/20 flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-display"></i> <span>OBS Overlay Mode</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- =======================================================================
+       MAIN WORKSPACE: LEFT = OBS STREAM STAGE | RIGHT = STREAMER CONSOLE
+       ======================================================================= -->
+  <main class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+
+    <!-- =====================================================================
+         LEFT: INTERACTIVE AVATAR & STREAM OVERLAY STAGE
+         ===================================================================== -->
+    <section id="stageContainer" class="relative flex-1 min-h-[420px] lg:min-h-0 flex flex-col items-center justify-between p-4 sm:p-6 overflow-hidden bg-theme-cyberpunk transition-colors duration-700">
+      <!-- Particle Canvas -->
+      <canvas id="stageCanvas" class="absolute inset-0 w-full h-full pointer-events-none z-0"></canvas>
+      <!-- Cyber Perspective Grid -->
+      <div id="stageGrid" class="bg-grid absolute inset-0 pointer-events-none z-0 transition-opacity duration-500"></div>
+      <!-- CRT Scanline Filter -->
+      <div id="scanlinesOverlay" class="crt-scanlines absolute inset-0 pointer-events-none z-10"></div>
+
+      <!-- Top Overlay Row: State Telemetry Pills & Alert Banner -->
+      <div class="relative z-20 w-full flex flex-col items-center gap-2">
+        <div class="w-full flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span id="flagExpression" class="px-2.5 py-1 rounded-md bg-slate-950/85 border border-cyan-500/40 text-[11px] font-mono text-cyber-cyan shadow">
+              [EXPRESSION: SMUG_GRIN]
+            </span>
+            <span id="flagVoice" class="px-2.5 py-1 rounded-md bg-slate-950/85 border border-pink-500/40 text-[11px] font-mono text-cyber-pink shadow">
+              [VOICE: ACHIRD // 1.15x]
+            </span>
+            <span id="flagBg" class="px-2.5 py-1 rounded-md bg-slate-950/85 border border-purple-500/40 text-[11px] font-mono text-purple-300 shadow">
+              [STAGE: NEON_ALLEY]
+            </span>
+          </div>
+
+          <button id="exitObsBtn" onclick="toggleObsMode()" class="hidden px-3 py-1 rounded-lg bg-slate-950/90 hover:bg-slate-900 border border-cyber-cyan text-cyber-cyan font-mono text-xs font-bold shadow-lg">
+            <i class="fa-solid fa-sliders mr-1"></i> Exit OBS Mode
+          </button>
+        </div>
+
+        <!-- Dynamic Event Alert Banner -->
+        <div id="alertBanner" class="opacity-0 -translate-y-3 transition-all duration-300 pointer-events-none px-4 py-1.5 rounded-full bg-slate-950/90 border border-cyber-yellow/60 shadow-lg shadow-yellow-500/10 flex items-center gap-2">
+          <i id="alertIcon" class="fa-solid fa-bolt text-cyber-yellow"></i>
+          <span id="alertText" class="font-mono text-xs font-bold tracking-wider text-white uppercase">STREAM EVENT DETECTED</span>
+        </div>
+      </div>
+
+      <!-- Center: Animated CRT Robot Co-Host ("BYTE") -->
+      <div class="relative z-20 my-auto flex flex-col items-center justify-center py-4">
+        <!-- Ambient Aura Glow -->
+        <div id="avatarAura" class="absolute w-64 h-64 rounded-full bg-cyan-500/20 blur-3xl pointer-events-none transition-all duration-500"></div>
+
+        <!-- Avatar Rig Container -->
+        <div id="avatarRig" class="anim-float relative flex flex-col items-center transition-transform duration-300">
+          <!-- Antennae -->
+          <div class="flex items-end justify-between w-36 -mb-1 z-10">
+            <div class="flex flex-col items-center">
+              <div id="antennaBulbLeft" class="w-3.5 h-3.5 rounded-full bg-cyber-cyan shadow-lg shadow-cyan-400 animate-pulse"></div>
+              <div class="w-1 h-6 bg-slate-600"></div>
+            </div>
+            <div class="px-2 py-0.5 rounded bg-slate-900 border border-cyan-500/40 text-[9px] font-mono text-cyber-cyan tracking-widest uppercase">
+              ARCADE-99
+            </div>
+            <div class="flex flex-col items-center">
+              <div id="antennaBulbRight" class="w-3.5 h-3.5 rounded-full bg-cyber-pink shadow-lg shadow-pink-500 animate-pulse"></div>
+              <div class="w-1 h-6 bg-slate-600"></div>
+            </div>
+          </div>
+
+          <!-- CRT Monitor Head Chassis -->
+          <div id="avatarChassis" class="relative w-56 h-44 sm:w-64 sm:h-48 rounded-3xl bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950 p-3.5 border-2 border-cyan-400/70 shadow-2xl shadow-cyan-500/20 flex items-center justify-center">
+            <!-- Side Ear Modules -->
+            <div class="absolute -left-3.5 top-1/2 -translate-y-1/2 w-3 h-16 rounded-l-lg bg-slate-800 border-l-2 border-y-2 border-cyan-400/60"></div>
+            <div class="absolute -right-3.5 top-1/2 -translate-y-1/2 w-3 h-16 rounded-r-lg bg-slate-800 border-r-2 border-y-2 border-pink-500/60"></div>
+
+            <!-- Overload Glitch Badge -->
+            <div id="glitchBadge" class="hidden absolute -top-3 right-3 px-2 py-0.5 rounded bg-rose-600 text-white font-mono text-[9px] font-extrabold tracking-widest uppercase shadow-lg animate-bounce">
+              OVERCLOCK!!
+            </div>
+
+            <!-- Inner CRT Face Screen -->
+            <div id="avatarScreen" class="w-full h-full rounded-2xl bg-slate-950 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-between p-4 shadow-inner">
+              <div class="crt-scanlines absolute inset-0 pointer-events-none opacity-60"></div>
+
+              <!-- Status HUD Top Bar inside Face -->
+              <div class="w-full flex items-center justify-between text-[9px] font-mono text-slate-500 z-10">
+                <span>SYS://BYTE.EXE</span>
+                <span id="faceMoodLabel" class="text-cyber-cyan">MOOD: SMUG</span>
+              </div>
+
+              <!-- Expressive Cyber Eyes & Brows -->
+              <div class="relative z-10 flex items-center justify-center gap-8 my-auto">
+                <!-- Left Eye Unit -->
+                <div class="relative flex flex-col items-center">
+                  <div id="browLeft" class="w-12 h-1.5 bg-cyber-cyan rounded-full mb-1.5 transition-all duration-200 origin-center" style="transform: rotate(8deg);"></div>
+                  <div id="eyeLeft" class="w-11 h-7 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 transition-all duration-200 flex items-center justify-center">
+                    <div class="w-3 h-3 rounded-full bg-slate-950/80"></div>
+                  </div>
+                </div>
+
+                <!-- Right Eye Unit -->
+                <div class="relative flex flex-col items-center">
+                  <div id="browRight" class="w-12 h-1.5 bg-cyber-cyan rounded-full mb-1.5 transition-all duration-200 origin-center" style="transform: rotate(-12deg);"></div>
+                  <div id="eyeRight" class="w-11 h-7 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 transition-all duration-200 flex items-center justify-center">
+                    <div class="w-3 h-3 rounded-full bg-slate-950/80"></div>
+                  </div>
+                </div>
+
+                <!-- Panic Sweat Drop -->
+                <div id="sweatDrop" class="hidden absolute -right-5 -top-2 text-cyan-300 text-lg animate-bounce">
+                  💧
+                </div>
+              </div>
+
+              <!-- Audio Equalizer Mouth -->
+              <div id="mouthEqualizer" class="z-10 flex items-center justify-center gap-1 h-7 w-32">
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 6px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 10px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-pink rounded-full transition-all duration-75" style="height: 14px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 18px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-yellow rounded-full transition-all duration-75" style="height: 14px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 18px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-pink rounded-full transition-all duration-75" style="height: 14px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 10px;"></div>
+                <div class="eq-bar w-1.5 bg-cyber-cyan rounded-full transition-all duration-75" style="height: 6px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Floating Mech Torso / Collar -->
+          <div class="w-36 h-8 -mt-1 rounded-b-2xl bg-gradient-to-b from-slate-800 to-slate-950 border-x-2 border-b-2 border-cyan-500/50 flex items-center justify-center gap-2 shadow-lg">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="text-[10px] font-mono font-bold text-slate-300 tracking-wider">CO-HOST CORE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Overlay Row: Live Stream Subtitles & TTS Waveform HUD -->
+      <div class="relative z-20 w-full max-w-2xl mx-auto">
+        <div class="rounded-2xl bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 p-3.5 sm:p-4 shadow-2xl">
+          <div class="flex items-center justify-between mb-1.5">
+            <div class="flex items-center gap-2">
+              <span id="subtitleSpeaker" class="px-2 py-0.5 rounded bg-cyber-cyan text-slate-950 font-display font-bold text-[10px] tracking-wider uppercase">
+                BYTE // AI
+              </span>
+              <span id="speakingIndicator" class="hidden text-[11px] font-mono text-cyber-pink font-semibold animate-pulse">
+                <i class="fa-solid fa-waveform-lines mr-1"></i> TRANSMITTING VOICE...
+              </span>
+            </div>
+            <span id="lastTriggerLabel" class="text-[10px] font-mono text-slate-400">READY FOR EVENTS</span>
+          </div>
+          <p id="subtitleText" class="text-sm sm:text-base font-medium text-slate-100 leading-relaxed">
+            "Reboot sequence complete—call me Byte, your rogue 90s arcade AI co-host! My circuits are warm, my sass protocols are overclocked, and I'm ready to backseat your gameplay. Fire off a trigger or connect your live Twitch chat, boss!"
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- =====================================================================
+         RIGHT: STREAMER CONTROL DECK, LIVE TWITCH BRIDGE & SENTIMENT ENGINE
+         ===================================================================== -->
+    <aside id="controlConsole" class="w-full lg:w-[500px] xl:w-[540px] bg-slate-900/95 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-auto lg:h-[calc(100vh-3.5rem)] overflow-y-auto z-20 shrink-0">
+      <div class="p-4 space-y-4">
+
+        <!-- ===============================================================
+             1. LIVE TWITCH CHAT BRIDGE (TMI.JS + NATIVE WS IRC)
+             =============================================================== -->
+        <div class="bg-slate-950/90 border border-purple-500/40 rounded-xl p-3.5 space-y-2.5 shadow-lg">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <i class="fa-brands fa-twitch text-purple-400 text-base"></i>
+              <span class="text-xs font-mono uppercase tracking-wider text-purple-300 font-bold">Live Twitch Chat Bridge</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="twitchEngineTag" class="text-[10px] font-mono text-slate-500 hidden sm:inline">Engine: tmi.js</span>
+              <span id="twitchStatusBadge" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700">DISCONNECTED</span>
+            </div>
+          </div>
+
+          <form onsubmit="handleTwitchConnect(event)" class="flex gap-2">
+            <input id="twitchChannelInput" type="text" placeholder="Enter Twitch channel (e.g. shroud, pokimane)" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-purple-400" />
+            <button id="twitchConnectBtn" type="submit" class="px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-mono text-xs font-bold transition flex items-center gap-1.5 shrink-0">
+              <i class="fa-solid fa-plug"></i> Connect Live Chat
+            </button>
+          </form>
+        </div>
+
+        <!-- ===============================================================
+             2. AUTOMATED WIN/LOSS DETECTION ENGINE (COMMANDS + SENTIMENT)
+             =============================================================== -->
+        <div class="bg-slate-950/90 border border-emerald-500/35 rounded-xl p-3.5 space-y-3 shadow-lg">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
+              <i class="fa-solid fa-gauge-high text-cyber-cyan"></i> Auto Win/Loss Detection (Chat &amp; Sentiment)
+            </span>
+            <span id="sentimentStatusBadge" class="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-mono text-emerald-300">
+              MONITORING
+            </span>
+          </div>
+
+          <!-- Live Rolling Crowd Sentiment Meters -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+            <div>
+              <div class="flex justify-between text-[10px] font-mono mb-1">
+                <span class="text-emerald-300 font-bold">🏆 VICTORY HYPE (W / GG)</span>
+                <span class="text-slate-300"><span id="winCountLabel">0</span> / <span id="winThreshLabel">4</span></span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
+                <div id="winMeterBar" class="h-full bg-gradient-to-r from-emerald-500 to-cyber-cyan transition-all duration-300" style="width: 0%;"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-[10px] font-mono mb-1">
+                <span class="text-rose-400 font-bold">💀 DEFEAT SPAM (L / F / RIP)</span>
+                <span class="text-slate-300"><span id="lossCountLabel">0</span> / <span id="lossThreshLabel">4</span></span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
+                <div id="lossMeterBar" class="h-full bg-gradient-to-r from-rose-500 to-cyber-pink transition-all duration-300" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- One-Click Crowd Burst & Command Test Buttons -->
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="simulateCrowdBurst('VICTORY')" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-bold flex items-center justify-center gap-1.5 transition">
+              <i class="fa-solid fa-fire"></i> Simulate "GG / W" Burst (x5)
+            </button>
+            <button type="button" onclick="simulateCrowdBurst('DEFEAT')" class="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 font-mono text-[10px] font-bold flex items-center justify-center gap-1.5 transition">
+              <i class="fa-solid fa-skull-crossbones"></i> Simulate "F / RIP" Burst (x5)
+            </button>
+          </div>
+
+          <!-- Sentiment Threshold & Window Sliders -->
+          <div class="grid grid-cols-3 gap-2 text-[10px] font-mono pt-1">
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>Burst Thresh:</span>
+                <span id="sentimentThreshVal" class="text-cyber-cyan">4 msgs</span>
+              </div>
+              <input id="sentimentThreshSlider" type="range" min="2" max="15" value="4" oninput="updateSentimentConfig()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span id="sentimentWindowLabel">12s Window:</span>
+                <span id="sentimentWindowVal" class="text-cyber-cyan">12s</span>
+              </div>
+              <input id="sentimentWindowSlider" type="range" min="5" max="30" value="12" oninput="updateSentimentConfig()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>Auto Cooldown:</span>
+                <span id="sentimentCdVal" class="text-cyber-cyan">30s</span>
+              </div>
+              <input id="sentimentCdSlider" type="range" min="5" max="90" step="5" value="30" oninput="updateSentimentConfig()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+          </div>
+
+          <!-- Custom Keyword Lists & Mod Toggle -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
+            <div>
+              <label class="block text-slate-400 mb-0.5">Victory Keywords (Comma-separated)</label>
+              <input id="winKeywordsInput" type="text" value="W, WW, GG, GGS, CLUTCH, EZ, GOAT, POG, LETS GO, NICE SHOT, WHAT A SAVE" onchange="updateSentimentConfig()" class="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-emerald-300 text-[10px]" />
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-0.5">Defeat Keywords (Comma-separated)</label>
+              <input id="lossKeywordsInput" type="text" value="L, LL, F, RIP, THROW, WHIFF, CHOKE, UNLUCKY, TRASH, RIGGED, BROKEN" onchange="updateSentimentConfig()" class="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-rose-300 text-[10px]" />
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] font-mono">
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input id="modOnlyCommandsToggle" type="checkbox" onchange="updateSentimentConfig()" class="accent-emerald-400 rounded cursor-pointer" />
+              <span>Restrict <code>!win</code> / <code>!loss</code> / <code>!bg</code> commands to Mods &amp; Broadcaster only</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- ===============================================================
+             3. INSTANT STREAM EVENT TRIGGERS
+             =============================================================== -->
+        <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-cyber-cyan font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-bolt text-cyber-yellow"></i> Instant Stream Triggers
+            </span>
+            <span class="text-[10px] font-mono text-slate-400">Priority Queued</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button type="button" onclick="fireTrigger('CHEER_LOW', 'PixelKnight_99', 'Here are 100 bits for arcade tokens!', 100)" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-cyber-cyan group-hover:translate-x-0.5 transition">[CHEER_LOW]</div>
+              <div class="text-[10px] text-slate-400">100 Bits • Pitch Up</div>
+            </button>
+
+            <button type="button" onclick="fireTrigger('CHEER_HIGH', 'CyberWhale_VIP', 'DROPPING 5000 BITS FOR MAXIMUM OVERCLOCK!!', 5000)" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-pink-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-cyber-pink group-hover:translate-x-0.5 transition">[CHEER_HIGH]</div>
+              <div class="text-[10px] text-slate-400">5000 Bits • Boss Mode</div>
+            </button>
+
+            <button type="button" onclick="fireTrigger('REWARD_BACKGROUND', 'NeonShifter', 'Redeemed Stage Environment Shift!')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-purple-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-purple-300 group-hover:translate-x-0.5 transition">[REWARD_BG]</div>
+              <div class="text-[10px] text-slate-400">Shift Stage Theme</div>
+            </button>
+
+            <button type="button" onclick="fireTrigger('RAID_SUB', 'SynthWave_Squad', 'Raiding with 142 Cyberpunk Viewers!')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-yellow-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-cyber-yellow group-hover:translate-x-0.5 transition">[RAID / SUB]</div>
+              <div class="text-[10px] text-slate-400">Welcome Shoutout</div>
+            </button>
+
+            <button type="button" onclick="fireTrigger('GAME_VICTORY', 'Match_Telemetry', 'Victory Royale / Clutch Win')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-emerald-400 group-hover:translate-x-0.5 transition">[GAME_VICTORY]</div>
+              <div class="text-[10px] text-slate-400">Smug Celebration</div>
+            </button>
+
+            <button type="button" onclick="fireTrigger('GAME_DEFEAT', 'Match_Telemetry', 'Eliminated / Round Lost')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-rose-500/40 text-left transition group">
+              <div class="text-[10px] font-mono font-bold text-rose-400 group-hover:translate-x-0.5 transition">[GAME_DEFEAT]</div>
+              <div class="text-[10px] text-slate-400">Dramatic Panic</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- ===============================================================
+             4. LIVE CHAT SIMULATOR & MODERATION SHIELD TESTER
+             =============================================================== -->
+        <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-comments text-cyber-cyan"></i> Live Chat Feed &amp; Command Simulator
+            </span>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="sendPresetChat('Mod_Valkyrie', '!win', true)" class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[10px] border border-emerald-500/40">!win Cmd</button>
+              <button type="button" onclick="sendPresetChat('Mod_Valkyrie', '!loss', true)" class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-mono text-[10px] border border-rose-500/40">!loss Cmd</button>
+              <button type="button" onclick="sendPresetChat('SaltyTroll_99', 'this bot is garbage uninstall loser', false)" class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-[10px] border border-amber-500/40">Troll Bait</button>
+            </div>
+          </div>
+
+          <div id="chatFeed" class="h-32 overflow-y-auto rounded-lg bg-slate-950 border border-slate-800/90 p-2.5 space-y-1.5 text-xs font-mono"></div>
+
+          <form onsubmit="handleChatSubmit(event)" class="flex gap-1.5">
+            <input id="chatUsername" type="text" value="ArcadeLegend" placeholder="Username" class="w-28 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-purple-300 focus:outline-none" />
+            <input id="chatMessageInput" type="text" placeholder="Type chat message, !win, !loss, or GG..." class="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-cyber-cyan" />
+            <button type="submit" class="px-3 py-1.5 rounded-lg bg-cyber-cyan hover:bg-cyan-300 text-slate-950 font-mono text-xs font-bold transition">
+              Send
+            </button>
+          </form>
+        </div>
+
+        <!-- ===============================================================
+             5. STAGE ENVIRONMENT & OBS CHROMA KEY SELECTOR
+             =============================================================== -->
+        <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <span class="text-xs font-mono uppercase tracking-wider text-purple-300 font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-panorama text-cyber-pink"></i> Stage Environment &amp; OBS Chroma Key
+          </span>
+          <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[10px] font-mono">
+            <button type="button" onclick="setStageTheme('NEON_ALLEY', true)" class="px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300">Neon Alley</button>
+            <button type="button" onclick="setStageTheme('RETRO_ARCADE', true)" class="px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-pink-500/40 text-pink-300">90s Arcade</button>
+            <button type="button" onclick="setStageTheme('ZEN_GARDEN', true)" class="px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300">Zen Garden</button>
+            <button type="button" onclick="setStageTheme('BOSS_CORE', true)" class="px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-purple-500/40 text-purple-300">Boss Core</button>
+            <button type="button" onclick="setStageTheme('MATRIX_CORE', true)" class="px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-green-500/40 text-green-300">Matrix Code</button>
+            <button type="button" onclick="setStageTheme('CHROMA_GREEN', false)" class="px-2 py-1.5 rounded bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-400 text-emerald-200 font-bold">🟩 OBS Key</button>
+          </div>
+        </div>
+
+        <!-- ===============================================================
+             6. PRIORITY EVENT COOLDOWN QUEUE MANAGER
+             =============================================================== -->
+        <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-amber-300 font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-layer-group text-cyber-yellow"></i> Priority Event Queue Manager
+            </span>
+            <div class="flex items-center gap-1.5">
+              <span id="queueCountBadge" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10px] font-mono text-cyber-cyan">0 Queued</span>
+              <button type="button" onclick="skipCurrentEvent()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300">Skip</button>
+              <button type="button" onclick="clearEventQueue()" class="px-2 py-0.5 rounded bg-rose-950/80 hover:bg-rose-900 text-[10px] font-mono text-rose-300 border border-rose-500/30">Clear</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-[10px] font-mono">
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>Chat Cooldown:</span>
+                <span id="cooldownValLabel" class="text-cyber-cyan">4s</span>
+              </div>
+              <input id="cooldownSlider" type="range" min="0" max="20" value="4" oninput="updateQueueConfig()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>Max Queue Size:</span>
+                <span id="maxQueueValLabel" class="text-cyber-cyan">8</span>
+              </div>
+              <input id="maxQueueSlider" type="range" min="2" max="20" value="8" oninput="updateQueueConfig()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+          </div>
+
+          <div id="queueListContainer" class="text-[11px] font-mono space-y-1 max-h-24 overflow-y-auto"></div>
+        </div>
+
+        <!-- ===============================================================
+             7. GEMINI 2.5 NATIVE AUDIO VOICE, PACE & EXPRESSION OVERRIDE
+             =============================================================== -->
+        <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-3.5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-emerald-400 font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-microphone-lines text-cyber-cyan"></i> Natural Voice Studio &amp; Speed Control
+            </span>
+            <button type="button" onclick="testSelectedVoice()" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-bold flex items-center gap-1 transition">
+              <i class="fa-solid fa-play"></i> Test Voice Sample
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-[10px] font-mono text-slate-400 mb-1">Gemini 2.5 Voice Profile (14 Voices)</label>
+              <select id="geminiVoiceSelect" onchange="updateVoiceSelection()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-emerald-300">
+                <optgroup label="Natural &amp; Conversational (Recommended)">
+                  <option value="Achird" selected>Achird (Friendly &amp; Natural)</option>
+                  <option value="Zubenelgenubi">Zubenelgenubi (Casual &amp; Relaxed)</option>
+                  <option value="Callirrhoe">Callirrhoe (Easy-Going &amp; Chill)</option>
+                  <option value="Sulafat">Sulafat (Warm &amp; Conversational)</option>
+                  <option value="Schedar">Schedar (Even, Grounded &amp; Balanced)</option>
+                  <option value="Despina">Despina (Smooth &amp; Flowing)</option>
+                  <option value="Vindemiatrix">Vindemiatrix (Gentle &amp; Calm)</option>
+                </optgroup>
+                <optgroup label="Clear &amp; Brisk Pacing">
+                  <option value="Zephyr">Zephyr (Bright, Brisk &amp; Crisp)</option>
+                  <option value="Erinome">Erinome (Clear &amp; Articulate)</option>
+                  <option value="Sadachbia">Sadachbia (Lively &amp; Fast-Paced)</option>
+                  <option value="Gacrux">Gacrux (Mature &amp; Steady)</option>
+                </optgroup>
+                <optgroup label="Character / Stylized">
+                  <option value="Puck">Puck (Upbeat Arcade)</option>
+                  <option value="Kore">Kore (Firm AI)</option>
+                  <option value="Fenrir">Fenrir (Deep Boss Mode)</option>
+                  <option value="Aoede">Aoede (Breezy)</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono text-slate-400 mb-1">Voice Delivery Tone</label>
+              <select id="voiceStyleSelect" onchange="updateVoiceSelection()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-cyan-300">
+                <option value="NATURAL_BRISK" selected>Natural &amp; Brisk (No Extra Sass)</option>
+                <option value="RAW_UNFILTERED">Pure Natural (Zero Prompt Prefix)</option>
+                <option value="CALM_CHILL">Relaxed &amp; Chill Co-Host</option>
+                <option value="CYBER_SASS">Playful Arcade Banter</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Voice Speed / Pace Control & Manual Expression -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-center bg-slate-900/70 p-2.5 rounded-lg border border-slate-800">
+            <div>
+              <div class="flex justify-between text-[10px] font-mono mb-1">
+                <span class="text-slate-400">Speaking Speed / Pace:</span>
+                <span id="voiceSpeedLabel" class="text-cyber-cyan font-bold">1.15x (Snappy)</span>
+              </div>
+              <input id="voiceSpeedSlider" type="range" min="0.85" max="1.50" step="0.05" value="1.15" oninput="updateVoiceSelection()" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg" />
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono text-slate-400 mb-1">Manual Expression Override</label>
+              <select id="manualExpressionSelect" onchange="setAvatarExpression(this.value)" class="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-cyber-cyan">
+                <option value="SMUG_GRIN">SMUG_GRIN</option>
+                <option value="HYPE_STAR">HYPE_STAR (HYPER_CHEER)</option>
+                <option value="GLITCH_OVERLOAD">GLITCH_OVERLOAD</option>
+                <option value="DRAMATIC_PANIC">DRAMATIC_PANIC (PANIC_SWEAT)</option>
+                <option value="BOSS_MODE">BOSS_MODE</option>
+                <option value="ANNOYED_SQUINT">ANNOYED_SQUINT (DEFLECT)</option>
+                <option value="NEUTRAL">NEUTRAL</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+            <label class="flex items-center gap-2 text-xs font-mono text-slate-300 cursor-pointer">
+              <input id="autoDynamicVoiceToggle" type="checkbox" onchange="savePersistentConfig()" class="accent-pink-500 rounded cursor-pointer">
+              <span>Auto-Switch Voice on Triggers (Uncheck to keep your chosen voice locked)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- ===============================================================
+             8. STREAM-READY OBS BROWSER SOURCE URL & LOCALSTORAGE CONFIG
+             =============================================================== -->
+        <div class="bg-slate-950/90 border border-cyan-500/35 rounded-xl p-3.5 space-y-3 shadow-lg">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-cyber-cyan font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-broadcast-tower text-cyber-pink"></i> OBS Browser Source Auto-Launch &amp; Config
+            </span>
+            <span id="configSavedBadge" class="text-[10px] font-mono text-emerald-400">Auto-Saved</span>
+          </div>
+
+          <div class="space-y-2 text-[11px] font-mono">
+            <div>
+              <label class="block text-[10px] text-slate-400 mb-1">Optional Gemini API Key (For running locally in OBS outside Canvas)</label>
+              <input id="customApiKeyInput" type="password" onchange="savePersistentConfig()" placeholder="Leave blank inside Canvas, or paste AIza... key for local OBS file" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-cyber-cyan focus:outline-none focus:border-cyber-cyan">
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <label class="flex items-center gap-1.5 text-slate-300 cursor-pointer text-[10px]">
+                <input id="obsUrlCleanToggle" type="checkbox" checked onchange="updateObsUrlPreview()" class="accent-cyan-400 rounded">
+                <span>Launch in Clean Overlay (<code>obs=1</code>)</span>
+              </label>
+              <label class="flex items-center gap-1.5 text-slate-300 cursor-pointer text-[10px]">
+                <input id="obsUrlGreenToggle" type="checkbox" onchange="updateObsUrlPreview()" class="accent-emerald-400 rounded">
+                <span>Green Screen Chroma (<code>greenscreen=1</code>)</span>
+              </label>
+            </div>
+
+            <div class="flex gap-1.5 pt-1">
+              <input id="obsUrlPreviewInput" type="text" readonly class="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-slate-300 font-mono select-all focus:outline-none">
+              <button type="button" onclick="copyObsLaunchUrl()" class="px-3 py-1.5 rounded-lg bg-cyber-cyan hover:bg-cyan-300 text-slate-950 font-mono text-[10px] font-bold transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-copy"></i> Copy OBS URL
+              </button>
+            </div>
+            <p id="copyConfirmToast" class="text-[10px] text-emerald-400 hidden">✔ Copied OBS Auto-Launch URL with parameters to clipboard!</p>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- =======================================================================
+       APPLICATION LOGIC: AVATAR, GEMINI NATIVE TTS, TMI.JS, QUEUE & BRAIN
+       ======================================================================= -->
+  <script>
+    // =========================================================================
+    // 1. STATE & CONFIGURATION
+    // =========================================================================
+    const apiKey = ""; // Canvas injects Gemini API key at runtime
+    const STORAGE_KEY = 'BYTE_COHOST_STREAM_CONFIG_V1';
+
+    function getActiveApiKey() {
+      const customKey = document.getElementById('customApiKeyInput')?.value?.trim();
+      return customKey || apiKey;
+    }
+
+    const state = {
+      expression: 'SMUG_GRIN',
+      voiceMode: 'NORMAL', // NORMAL, PITCH_UP, ROBOT_DEEP
+      geminiVoice: 'Achird', // Natural & friendly default
+      voiceStyle: 'NATURAL_BRISK', // NATURAL_BRISK, RAW_UNFILTERED, CALM_CHILL, CYBER_SASS
+      voiceSpeed: 1.15, // 0.85x to 1.50x playback speed
+      background: 'NEON_ALLEY', // NEON_ALLEY, RETRO_ARCADE, ZEN_GARDEN, BOSS_CORE, MATRIX_CORE, CHROMA_GREEN
+      isSpeaking: false,
+      isProcessingQueue: false,
+      audioMuted: false,
+      obsCleanMode: false,
+      chatCooldownSec: 4,
+      maxQueueSize: 8,
+      lastChatProcessedAt: 0,
+      eventQueue: [],
+      activeAudioSource: null,
+      twitchConnected: false,
+      twitchChannel: '',
+      // Sentiment & Auto Win/Loss Detection State
+      sentimentWindowSec: 12,
+      sentimentThreshold: 4,
+      sentimentCooldownSec: 30,
+      lastSentimentTriggerAt: 0,
+      modOnlyCommands: false,
+      winTimestamps: [],
+      lossTimestamps: [],
+      winKeywords: ['W', 'WW', 'GG', 'GGS', 'CLUTCH', 'EZ', 'GOAT', 'POG', 'LETS GO', 'NICE SHOT', 'WHAT A SAVE'],
+      lossKeywords: ['L', 'LL', 'F', 'RIP', 'THROW', 'WHIFF', 'CHOKE', 'UNLUCKY', 'TRASH', 'RIGGED', 'BROKEN'],
+      lastSpokenText: "Reboot sequence complete—call me Byte, your rogue 90s arcade AI co-host! My circuits are warm, my sass protocols are overclocked, and I'm ready to backseat your gameplay. Fire off a trigger or connect your live Twitch chat, boss!",
+      bgOrder: ['NEON_ALLEY', 'RETRO_ARCADE', 'ZEN_GARDEN', 'BOSS_CORE', 'MATRIX_CORE']
+    };
+
+    const EVENT_PRIORITIES = {
+      CHEER_HIGH: 100,
+      RAID_SUB: 90,
+      REWARD_BACKGROUND: 80,
+      GAME_VICTORY: 75,
+      GAME_DEFEAT: 75,
+      CHEER_LOW: 60,
+      TROLL_DEFLECT: 40,
+      CHAT: 10
+    };
+
+    const SYSTEM_PROMPT = `You are Byte, a friendly, natural, and grounded AI co-host for a live Twitch stream.
+Keep every response concise (1-2 short sentences maximum, under 28 words) so it can be spoken quickly and naturally during live gameplay.
+Sound like a genuine human co-host hanging out with the streamer and chat—avoid over-the-top robotic clichés or forced sass. Never repeat toxic language.
+Respond strictly in JSON matching this schema:
+{
+  "reply": "string (1-2 natural, conversational sentences spoken aloud by Byte)",
+  "expression": "SMUG_GRIN | HYPE_STAR | GLITCH_OVERLOAD | DRAMATIC_PANIC | BOSS_MODE | ANNOYED_SQUINT | NEUTRAL",
+  "voiceMod": "NORMAL | PITCH_UP | ROBOT_DEEP"
+}`;
+
+    const FALLBACK_BANTER = {
+      CHEER_LOW: [
+        "Ooh, shiny bits detected! Appreciate the arcade tokens, legend—my circuits are practically purring!",
+        "Bits in the jar! Voltage bumped up by 10 percent—huge thanks for fueling the stream!"
+      ],
+      CHEER_HIGH: [
+        "WARNING: MASSIVE BIT OVERLOAD! My vocal processors just dropped into boss mode—Bow down to the absolute legend in chat!",
+        "SYSTEM OVERCLOCKED! That mega-cheer just upgraded my GPU to maximum hype—thank you for the god-tier support!"
+      ],
+      REWARD_BACKGROUND: {
+        NEON_ALLEY: "Whoa, spatial coordinates shifted! Welcome back to the Neon Cyberpunk Alley—watch out for puddles of liquid cooling fluid!",
+        RETRO_ARCADE: "Channel points redeemed! Did someone just teleport us inside a 1996 CRT arcade cabinet? I can smell the pizza and static electricity already!",
+        ZEN_GARDEN: "Wait, where did the lasers go?! Chat just redeemed the Tranquil Zen Garden—my cooling fans are literally purring right now, so peaceful!",
+        BOSS_CORE: "WARNING: Boss Core arena loaded! The neon voltage in here is off the charts—lock in, chat!",
+        MATRIX_CORE: "Whoa, reality decompiled! We are deep inside the Corrupted Matrix Core now, chat—don't touch the falling green code!"
+      },
+      RAID_SUB: [
+        "ALERT! Incoming raid party breaching the firewall! Welcome in raiders—grab some virtual popcorn and spam those emotes!",
+        "HYPE TRAIN INCOMING! Shoutout to the new squad locking into the broadcast—you just made my neon sensors peak!"
+      ],
+      GAME_VICTORY: [
+        "Too easy! Look at that smug grin on my CRT—chat, go ahead and type GG because we literally never doubt the streamer!",
+        "Calculated to the millisecond! Another massive W in the databanks—honestly, my backseat coaching deserves half the trophy!"
+      ],
+      GAME_DEFEAT: [
+        "ERROR 404: SKILL NOT FOUND! Press F in chat immediately—the controller definitely lagged, right boss?!",
+        "My panic sensors are overheating! That wasn't a throw, that was a tactical morale test for the next match!"
+      ],
+      TROLL_DEFLECT: [
+        "Nice bait, champ, but my firewall eats low-effort salt for breakfast—try harder or enjoy the chill vibes!",
+        "Error: Toxic packet dropped at the perimeter! Positive vibes only in this arcade, folks!"
+      ]
+    };
+
+    // =========================================================================
+    // 2. WEB AUDIO SYNTHESIZER, 24KHZ PCM PLAYER & GEMINI NATIVE TTS
+    // =========================================================================
+    let audioCtx = null;
+    let analyserNode = null;
+    let lipSyncInterval = null;
+
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass({ sampleRate: 24000 });
+        analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 64;
+        analyserNode.connect(audioCtx.destination);
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playSynthSfx(type) {
+      if (state.audioMuted) return;
+      try {
+        ensureAudioContext();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'CHEER_LOW' || type === 'PING') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(523.25, now);
+          osc.frequency.exponentialRampToValueAtTime(1046.5, now + 0.16);
+          gain.gain.setValueAtTime(0.14, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+          osc.start(now);
+          osc.stop(now + 0.22);
+        } else if (type === 'CHEER_HIGH' || type === 'OVERLOAD') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(140, now);
+          osc.frequency.linearRampToValueAtTime(880, now + 0.18);
+          osc.frequency.linearRampToValueAtTime(220, now + 0.4);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+          osc.start(now);
+          osc.stop(now + 0.45);
+        } else if (type === 'DEFEAT') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(300, now);
+          osc.frequency.linearRampToValueAtTime(95, now + 0.35);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+          osc.start(now);
+          osc.stop(now + 0.38);
+        } else {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+          gain.gain.setValueAtTime(0.1, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        }
+      } catch (e) {}
+    }
+
+    function setAvatarTalking(isTalking) {
+      state.isSpeaking = isTalking;
+      const indicator = document.getElementById('speakingIndicator');
+      const bars = document.querySelectorAll('#mouthEqualizer .eq-bar');
+
+      if (isTalking) {
+        if (indicator) indicator.classList.remove('hidden');
+        if (lipSyncInterval) clearInterval(lipSyncInterval);
+        const freqData = analyserNode ? new Uint8Array(analyserNode.frequencyBinCount) : null;
+
+        lipSyncInterval = setInterval(() => {
+          if (analyserNode && state.activeAudioSource && freqData) {
+            analyserNode.getByteFrequencyData(freqData);
+            bars.forEach((bar, i) => {
+              const val = freqData[i % freqData.length] || 0;
+              const h = Math.max(5, Math.min(28, Math.round((val / 255) * 28) + (Math.random() * 6)));
+              bar.style.height = `${h}px`;
+            });
+          } else {
+            bars.forEach((bar) => {
+              const h = Math.floor(Math.random() * 22) + 5;
+              bar.style.height = `${h}px`;
+            });
+          }
+        }, 70);
+      } else {
+        if (indicator) indicator.classList.add('hidden');
+        if (lipSyncInterval) {
+          clearInterval(lipSyncInterval);
+          lipSyncInterval = null;
+        }
+        const restHeights = [6, 10, 14, 18, 14, 18, 14, 10, 6];
+        bars.forEach((bar, idx) => {
+          bar.style.height = `${restHeights[idx % restHeights.length]}px`;
+        });
+      }
+    }
+
+    async function playPCM24k(base64Data, sampleRate = 24000) {
+      if (state.audioMuted) return;
+      ensureAudioContext();
+
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+
+      const int16Data = new Int16Array(bytes.buffer);
+      const float32Data = new Float32Array(int16Data.length);
+      for (let i = 0; i < int16Data.length; i++) {
+        float32Data[i] = int16Data[i] / 32768.0;
+      }
+
+      const audioBuffer = audioCtx.createBuffer(1, float32Data.length, sampleRate);
+      audioBuffer.getChannelData(0).set(float32Data);
+
+      return new Promise((resolve) => {
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        // Apply user-configured playback speed for brisker delivery
+        source.playbackRate.value = Math.max(0.75, Math.min(1.6, state.voiceSpeed || 1.15));
+        source.connect(analyserNode || audioCtx.destination);
+        state.activeAudioSource = source;
+
+        setAvatarTalking(true);
+        source.onended = () => {
+          state.activeAudioSource = null;
+          setAvatarTalking(false);
+          resolve();
+        };
+        source.start();
+      });
+    }
+
+    function speakWithBrowserFallback(text, voiceModulation = 'NORMAL') {
+      return new Promise((resolve) => {
+        if (state.audioMuted || !('speechSynthesis' in window)) {
+          setAvatarTalking(true);
+          setTimeout(() => {
+            setAvatarTalking(false);
+            resolve();
+          }, Math.min(3200, Math.max(1200, text.length * 42)));
+          return;
+        }
+
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        const baseRate = state.voiceSpeed || 1.15;
+        if (voiceModulation === 'PITCH_UP') {
+          utter.pitch = 1.12;
+          utter.rate = Math.min(1.6, baseRate * 1.05);
+        } else if (voiceModulation === 'ROBOT_DEEP') {
+          utter.pitch = 0.85;
+          utter.rate = Math.max(0.85, baseRate * 0.95);
+        } else {
+          utter.pitch = 1.0;
+          utter.rate = baseRate;
+        }
+
+        setAvatarTalking(true);
+        utter.onend = () => {
+          setAvatarTalking(false);
+          resolve();
+        };
+        utter.onerror = () => {
+          setAvatarTalking(false);
+          resolve();
+        };
+        window.speechSynthesis.speak(utter);
+      });
+    }
+
+    async function speakWithGeminiTTS(text, voiceName = 'Achird', voiceModulation = 'NORMAL') {
+      state.lastSpokenText = text;
+      if (state.audioMuted) {
+        await speakWithBrowserFallback(text, voiceModulation);
+        return false;
+      }
+
+      // Build natural pacing prompt without forced theatrical sass unless requested
+      let promptText = text;
+      if (state.voiceStyle === 'NATURAL_BRISK') {
+        promptText = `Speak naturally, conversationally, and at a brisk, lively pace: ${text}`;
+      } else if (state.voiceStyle === 'CALM_CHILL') {
+        promptText = `Speak in a warm, relaxed, and natural conversational tone at a steady pace: ${text}`;
+      } else if (state.voiceStyle === 'CYBER_SASS') {
+        if (voiceModulation === 'ROBOT_DEEP' || voiceName === 'Fenrir') {
+          promptText = `Say with dramatic, booming energy: ${text}`;
+        } else if (voiceModulation === 'PITCH_UP') {
+          promptText = `Say cheerfully and rapidly with high-energy excitement: ${text}`;
+        } else {
+          promptText = `Say with upbeat, witty energy: ${text}`;
+        }
+      }
+
+      const activeKey = getActiveApiKey();
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${activeKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: voiceName }
+            }
+          }
+        }
+      };
+
+      const delays = [1000, 2000];
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) throw new Error(`TTS HTTP ${response.status}`);
+          const data = await response.json();
+          const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+
+          if (inlineData && inlineData.data) {
+            let sampleRate = 24000;
+            if (inlineData.mimeType) {
+              const rateMatch = inlineData.mimeType.match(/rate=(\d+)/i);
+              if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
+            }
+            const engineBadge = document.getElementById('ttsEngineBadge');
+            if (engineBadge) {
+              engineBadge.textContent = `GEMINI 2.5 AUDIO (${voiceName.toUpperCase()} @ ${state.voiceSpeed.toFixed(2)}x)`;
+              engineBadge.className = 'text-emerald-400 font-semibold';
+            }
+            await playPCM24k(inlineData.data, sampleRate);
+            return true;
+          }
+          throw new Error("No audio inlineData returned");
+        } catch (err) {
+          if (attempt < delays.length) {
+            await new Promise(r => setTimeout(r, delays[attempt]));
+          }
+        }
+      }
+
+      const engineBadge = document.getElementById('ttsEngineBadge');
+      if (engineBadge) {
+        engineBadge.textContent = 'BROWSER SYNTH FALLBACK';
+        engineBadge.className = 'text-amber-400 font-semibold';
+      }
+      await speakWithBrowserFallback(text, voiceModulation);
+      return false;
+    }
+
+    function updateVoiceSelection() {
+      const sel = document.getElementById('geminiVoiceSelect')?.value || 'Achird';
+      const styleSel = document.getElementById('voiceStyleSelect')?.value || 'NATURAL_BRISK';
+      const speedVal = parseFloat(document.getElementById('voiceSpeedSlider')?.value || '1.15');
+
+      state.geminiVoice = sel;
+      state.voiceStyle = styleSel;
+      state.voiceSpeed = speedVal;
+
+      const speedLabel = document.getElementById('voiceSpeedLabel');
+      if (speedLabel) {
+        const tag = speedVal > 1.2 ? 'Fast' : speedVal > 1.05 ? 'Snappy' : speedVal < 0.98 ? 'Relaxed' : 'Normal';
+        speedLabel.textContent = `${speedVal.toFixed(2)}x (${tag})`;
+      }
+
+      document.getElementById('flagVoice').textContent = `[VOICE: ${sel.toUpperCase()} // ${speedVal.toFixed(2)}x]`;
+      const engineBadge = document.getElementById('ttsEngineBadge');
+      if (engineBadge) {
+        engineBadge.textContent = `GEMINI 2.5 AUDIO (${sel.toUpperCase()})`;
+      }
+      savePersistentConfig();
+      updateObsUrlPreview();
+    }
+
+    function testSelectedVoice() {
+      const voice = state.geminiVoice || 'Achird';
+      const sampleLine = `Hey chat, testing out the ${voice} voice profile at ${state.voiceSpeed.toFixed(2)}x speed—how does this pacing sound for the stream?`;
+      document.getElementById('subtitleText').textContent = `"${sampleLine}"`;
+      speakWithGeminiTTS(sampleLine, voice, 'NORMAL');
+    }
+
+    function toggleAudioMute() {
+      state.audioMuted = !state.audioMuted;
+      const btn = document.getElementById('audioMuteBtn');
+      const icon = document.getElementById('audioMuteIcon');
+      const txt = document.getElementById('audioMuteText');
+      if (state.audioMuted) {
+        if (state.activeAudioSource) {
+          try { state.activeAudioSource.stop(); } catch (e) {}
+        }
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        icon.className = 'fa-solid fa-volume-xmark';
+        txt.textContent = 'Muted';
+        btn.classList.replace('text-emerald-300', 'text-rose-400');
+      } else {
+        icon.className = 'fa-solid fa-volume-high';
+        txt.textContent = 'Audio ON';
+        btn.classList.replace('text-rose-400', 'text-emerald-300');
+      }
+    }
+
+    function replayLastSpeech() {
+      if (state.lastSpokenText) {
+        speakWithGeminiTTS(state.lastSpokenText, state.geminiVoice, state.voiceMode);
+      }
+    }
+
+    // =========================================================================
+    // 3. STAGE PARTICLE ENGINE (HTML5 CANVAS)
+    // =========================================================================
+    const canvas = document.getElementById('stageCanvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resizeCanvas() {
+      const container = document.getElementById('stageContainer');
+      if (!container) return;
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function initAmbientParticles() {
+      particles = [];
+      for (let i = 0; i < 40; i++) {
+        particles.push({
+          x: Math.random() * (canvas.width || 600),
+          y: Math.random() * (canvas.height || 400),
+          vx: (Math.random() - 0.5) * 0.6,
+          vy: -Math.random() * 0.8 - 0.2,
+          size: Math.random() * 2.5 + 1,
+          color: i % 2 === 0 ? '#00f3ff' : '#ff007f',
+          alpha: Math.random() * 0.6 + 0.2,
+          burst: false
+        });
+      }
+    }
+
+    function spawnParticleBurst(color1 = '#00f3ff', color2 = '#fcee0a') {
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      for (let i = 0; i < 32; i++) {
+        const angle = (Math.PI * 2 * i) / 32;
+        const speed = Math.random() * 4 + 1.5;
+        particles.push({
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          size: Math.random() * 3.5 + 1.5,
+          color: i % 2 === 0 ? color1 : color2,
+          alpha: 1,
+          burst: true
+        });
+      }
+    }
+
+    function renderStageCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (state.background !== 'CHROMA_GREEN') {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+
+          if (p.burst) {
+            p.alpha -= 0.02;
+            if (p.alpha <= 0) {
+              particles.splice(i, 1);
+              continue;
+            }
+          } else {
+            if (p.y < 0) p.y = canvas.height;
+            if (p.x < 0) p.x = canvas.width;
+            if (p.x > canvas.width) p.x = 0;
+          }
+
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.fillStyle = p.color;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      requestAnimationFrame(renderStageCanvas);
+    }
+
+    // =========================================================================
+    // 4. AVATAR EXPRESSION & STAGE ENVIRONMENT ENGINE
+    // =========================================================================
+    function setAvatarExpression(expr) {
+      const aliasMap = {
+        'HYPE_CELEBRATION': 'HYPER_CHEER',
+        'HYPE_STAR': 'HYPER_CHEER',
+        'GLITCH_OVERLOAD': 'OVERLOAD_GLITCH',
+        'DRAMATIC_PANIC': 'PANIC_SWEAT',
+        'ANNOYED_SQUINT': 'DEFLECT_SHIELD'
+      };
+      const normalized = aliasMap[expr] || expr;
+      state.expression = normalized;
+      document.getElementById('flagExpression').textContent = `[EXPRESSION: ${expr}]`;
+
+      const selectEl = document.getElementById('manualExpressionSelect');
+      if (selectEl) {
+        for (let i = 0; i < selectEl.options.length; i++) {
+          if (selectEl.options[i].value === expr || selectEl.options[i].value === normalized) {
+            selectEl.selectedIndex = i;
+            break;
+          }
+        }
+      }
+
+      const rig = document.getElementById('avatarRig');
+      const eyeL = document.getElementById('eyeLeft');
+      const eyeR = document.getElementById('eyeRight');
+      const browL = document.getElementById('browLeft');
+      const browR = document.getElementById('browRight');
+      const sweat = document.getElementById('sweatDrop');
+      const glitchBadge = document.getElementById('glitchBadge');
+      const moodLabel = document.getElementById('faceMoodLabel');
+      const aura = document.getElementById('avatarAura');
+
+      rig.className = 'relative flex flex-col items-center transition-transform duration-300';
+      sweat.classList.add('hidden');
+      glitchBadge.classList.add('hidden');
+
+      if (normalized === 'SMUG_GRIN') {
+        rig.classList.add('anim-float');
+        browL.style.transform = 'rotate(10deg) translateY(2px)';
+        browR.style.transform = 'rotate(-16deg) translateY(-3px)';
+        eyeL.className = 'w-11 h-6 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 flex items-center justify-center';
+        eyeR.className = 'w-11 h-7 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 flex items-center justify-center';
+        moodLabel.textContent = 'MOOD: SMUG_GRIN';
+        aura.className = 'absolute w-64 h-64 rounded-full bg-cyan-500/20 blur-3xl pointer-events-none transition-all duration-500';
+      } else if (normalized === 'HYPER_CHEER') {
+        rig.classList.add('anim-hype');
+        browL.style.transform = 'rotate(-12deg) translateY(-4px)';
+        browR.style.transform = 'rotate(12deg) translateY(-4px)';
+        eyeL.className = 'w-11 h-9 rounded-full bg-cyber-yellow shadow-lg shadow-yellow-400/80 flex items-center justify-center';
+        eyeR.className = 'w-11 h-9 rounded-full bg-cyber-yellow shadow-lg shadow-yellow-400/80 flex items-center justify-center';
+        moodLabel.textContent = 'MOOD: HYPE_STAR';
+        aura.className = 'absolute w-72 h-72 rounded-full bg-yellow-400/25 blur-3xl pointer-events-none transition-all duration-500';
+      } else if (normalized === 'OVERLOAD_GLITCH' || normalized === 'BOSS_MODE') {
+        rig.classList.add('anim-glitch');
+        glitchBadge.classList.remove('hidden');
+        browL.style.transform = 'rotate(22deg) translateY(3px)';
+        browR.style.transform = 'rotate(-22deg) translateY(3px)';
+        eyeL.className = 'w-11 h-7 rounded-lg bg-cyber-pink shadow-lg shadow-pink-500/80 flex items-center justify-center';
+        eyeR.className = 'w-11 h-7 rounded-lg bg-cyber-pink shadow-lg shadow-pink-500/80 flex items-center justify-center';
+        moodLabel.textContent = normalized === 'BOSS_MODE' ? 'MOOD: BOSS_MODE' : 'MOOD: OVERLOAD';
+        aura.className = 'absolute w-72 h-72 rounded-full bg-pink-500/30 blur-3xl pointer-events-none transition-all duration-500';
+      } else if (normalized === 'PANIC_SWEAT') {
+        rig.classList.add('anim-panic');
+        sweat.classList.remove('hidden');
+        browL.style.transform = 'rotate(-18deg) translateY(-3px)';
+        browR.style.transform = 'rotate(18deg) translateY(-3px)';
+        eyeL.className = 'w-9 h-9 rounded-full bg-rose-400 shadow-lg shadow-rose-500/70 flex items-center justify-center';
+        eyeR.className = 'w-9 h-9 rounded-full bg-rose-400 shadow-lg shadow-rose-500/70 flex items-center justify-center';
+        moodLabel.textContent = 'MOOD: PANIC!!';
+        aura.className = 'absolute w-64 h-64 rounded-full bg-rose-500/25 blur-3xl pointer-events-none transition-all duration-500';
+      } else if (normalized === 'DEFLECT_SHIELD') {
+        rig.classList.add('anim-float');
+        browL.style.transform = 'rotate(0deg) translateY(4px)';
+        browR.style.transform = 'rotate(0deg) translateY(4px)';
+        eyeL.className = 'w-12 h-3 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/70 flex items-center justify-center';
+        eyeR.className = 'w-12 h-3 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/70 flex items-center justify-center';
+        moodLabel.textContent = 'MOOD: SHIELD_ACTIVE';
+        aura.className = 'absolute w-64 h-64 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none transition-all duration-500';
+      } else {
+        rig.classList.add('anim-float');
+        browL.style.transform = 'rotate(0deg)';
+        browR.style.transform = 'rotate(0deg)';
+        eyeL.className = 'w-11 h-7 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 flex items-center justify-center';
+        eyeR.className = 'w-11 h-7 rounded-lg bg-cyber-cyan shadow-lg shadow-cyan-400/60 flex items-center justify-center';
+        moodLabel.textContent = 'MOOD: ONLINE';
+      }
+    }
+
+    function setStageTheme(themeKey, triggerReaction = false) {
+      state.background = themeKey;
+      document.getElementById('flagBg').textContent = `[STAGE: ${themeKey}]`;
+
+      const stage = document.getElementById('stageContainer');
+      const grid = document.getElementById('stageGrid');
+      const scanlines = document.getElementById('scanlinesOverlay');
+
+      stage.classList.remove('bg-theme-cyberpunk', 'bg-theme-arcade', 'bg-theme-zen', 'bg-theme-matrix', 'bg-theme-chroma');
+
+      if (themeKey === 'NEON_ALLEY') {
+        stage.classList.add('bg-theme-cyberpunk');
+        grid.classList.remove('opacity-0');
+        scanlines.classList.remove('hidden');
+      } else if (themeKey === 'RETRO_ARCADE' || themeKey === 'BOSS_CORE') {
+        stage.classList.add('bg-theme-arcade');
+        grid.classList.remove('opacity-0');
+        scanlines.classList.remove('hidden');
+      } else if (themeKey === 'ZEN_GARDEN') {
+        stage.classList.add('bg-theme-zen');
+        grid.classList.add('opacity-0');
+        scanlines.classList.remove('hidden');
+      } else if (themeKey === 'MATRIX_CORE') {
+        stage.classList.add('bg-theme-matrix');
+        grid.classList.add('opacity-0');
+        scanlines.classList.remove('hidden');
+      } else if (themeKey === 'CHROMA_GREEN') {
+        stage.classList.add('bg-theme-chroma');
+        grid.classList.add('opacity-0');
+        scanlines.classList.add('hidden');
+      }
+
+      spawnParticleBurst();
+      if (triggerReaction) {
+        playSynthSfx('PING');
+      }
+    }
+
+    let alertBannerTimeout = null;
+    function showAlertBanner(text, iconClass = 'fa-solid fa-bolt text-cyber-yellow') {
+      const banner = document.getElementById('alertBanner');
+      const icon = document.getElementById('alertIcon');
+      const label = document.getElementById('alertText');
+      if (!banner) return;
+
+      icon.className = iconClass;
+      label.textContent = text;
+      banner.classList.remove('opacity-0', '-translate-y-3');
+      banner.classList.add('opacity-100', 'translate-y-0');
+
+      if (alertBannerTimeout) clearTimeout(alertBannerTimeout);
+      alertBannerTimeout = setTimeout(() => {
+        banner.classList.remove('opacity-100', 'translate-y-0');
+        banner.classList.add('opacity-0', '-translate-y-3');
+      }, 3600);
+    }
+
+    // =========================================================================
+    // 5. GEMINI 3 FLASH CONVERSATIONAL BRAIN
+    // =========================================================================
+    async function callGeminiBrain(promptContext, fallbackObj) {
+      const apiBadge = document.getElementById('apiStatusBadge');
+      if (apiBadge) {
+        apiBadge.textContent = 'THINKING...';
+        apiBadge.className = 'text-cyber-yellow font-semibold animate-pulse';
+      }
+
+      const activeKey = getActiveApiKey();
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${activeKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: promptContext }] }],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      };
+
+      const delays = [1000, 2000];
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawJson) {
+            const parsed = JSON.parse(rawJson);
+            if (apiBadge) {
+              apiBadge.textContent = 'GEMINI 3 FLASH';
+              apiBadge.className = 'text-emerald-400 font-semibold';
+            }
+            return parsed;
+          }
+        } catch (err) {
+          if (attempt < delays.length) {
+            await new Promise(r => setTimeout(r, delays[attempt]));
+          }
+        }
+      }
+
+      if (apiBadge) {
+        apiBadge.textContent = 'LOCAL BRAIN';
+        apiBadge.className = 'text-cyber-cyan font-semibold';
+      }
+      return fallbackObj;
+    }
+
+    // =========================================================================
+    // 6. AUTOMATED WIN/LOSS ENGINE (CHAT COMMANDS + ROLLING CROWD SENTIMENT)
+    // =========================================================================
+    function setElText(id, val) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    }
+
+    function updateSentimentConfig() {
+      const thresh = parseInt(document.getElementById('sentimentThreshSlider')?.value, 10) || 4;
+      const winSec = parseInt(document.getElementById('sentimentWindowSlider')?.value, 10) || 12;
+      const cdSec = parseInt(document.getElementById('sentimentCdSlider')?.value, 10) || 30;
+
+      state.sentimentThreshold = thresh;
+      state.sentimentWindowSec = winSec;
+      state.sentimentCooldownSec = cdSec;
+      state.modOnlyCommands = document.getElementById('modOnlyCommandsToggle')?.checked || false;
+
+      setElText('sentimentThreshVal', `${thresh} msgs`);
+      setElText('winThreshLabel', thresh);
+      setElText('lossThreshLabel', thresh);
+      setElText('sentimentWindowVal', `${winSec}s`);
+      setElText('sentimentWindowLabel', `${winSec}s Window:`);
+      setElText('sentimentCdVal', `${cdSec}s`);
+
+      const winRaw = document.getElementById('winKeywordsInput')?.value || 'W, WW, GG, GGS, CLUTCH, EZ, GOAT, POG, LETS GO, NICE SHOT, WHAT A SAVE';
+      const lossRaw = document.getElementById('lossKeywordsInput')?.value || 'L, LL, F, RIP, THROW, WHIFF, CHOKE, UNLUCKY, TRASH, RIGGED, BROKEN';
+      state.winKeywords = winRaw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      state.lossKeywords = lossRaw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+      savePersistentConfig();
+      refreshSentimentMeters();
+    }
+
+    function matchesKeywordList(messageUpper, keywordList) {
+      const words = messageUpper.replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+      for (const kw of keywordList) {
+        if (kw.includes(' ')) {
+          if (messageUpper.includes(kw)) return true;
+        } else {
+          if (words.includes(kw)) return true;
+        }
+      }
+      return false;
+    }
+
+    function evaluateChatCommandOrSentiment(username, rawMessage, isPrivilegedUser = true) {
+      const trimmed = rawMessage.trim();
+      const lower = trimmed.toLowerCase();
+
+      // 1. Check Moderator / Broadcaster Commands (!win, !loss, !bg)
+      if (lower.startsWith('!')) {
+        const cmd = lower.split(/\s+/)[0];
+        const allowed = !state.modOnlyCommands || isPrivilegedUser;
+
+        if (['!win', '!victory', '!gg', '!clutch'].includes(cmd)) {
+          if (!allowed) {
+            appendChatMessage('SYSTEM', `🔒 Ignored <b>${cmd}</b> from ${username} (Mod/Broadcaster-only mode enabled).`, 'SYSTEM');
+            return true;
+          }
+          appendChatMessage('SYSTEM', `⚡ <b>COMMAND DETECTED:</b> ${username} triggered <code>${cmd}</code> &rarr; <b>[GAME_VICTORY]</b>!`, 'SYSTEM');
+          fireTrigger('GAME_VICTORY', username, `Chat Command ${cmd}`);
+          return true;
+        }
+
+        if (['!loss', '!defeat', '!rip', '!throw'].includes(cmd)) {
+          if (!allowed) {
+            appendChatMessage('SYSTEM', `🔒 Ignored <b>${cmd}</b> from ${username} (Mod/Broadcaster-only mode enabled).`, 'SYSTEM');
+            return true;
+          }
+          appendChatMessage('SYSTEM', `⚡ <b>COMMAND DETECTED:</b> ${username} triggered <code>${cmd}</code> &rarr; <b>[GAME_DEFEAT]</b>!`, 'SYSTEM');
+          fireTrigger('GAME_DEFEAT', username, `Chat Command ${cmd}`);
+          return true;
+        }
+
+        if (['!bg', '!background', '!stage'].includes(cmd)) {
+          if (!allowed) return true;
+          appendChatMessage('SYSTEM', `🌆 <b>COMMAND DETECTED:</b> ${username} triggered <code>${cmd}</code> &rarr; <b>[REWARD_BACKGROUND]</b>!`, 'SYSTEM');
+          fireTrigger('REWARD_BACKGROUND', username, `Chat Command ${cmd}`);
+          return true;
+        }
+
+        return false;
+      }
+
+      // 2. Evaluate Rolling Crowd Sentiment for Victory Hype vs Defeat
+      const upper = trimmed.toUpperCase();
+      const now = Date.now();
+      let matchedSentiment = false;
+
+      if (matchesKeywordList(upper, state.winKeywords)) {
+        state.winTimestamps.push(now);
+        matchedSentiment = true;
+      }
+      if (matchesKeywordList(upper, state.lossKeywords)) {
+        state.lossTimestamps.push(now);
+        matchedSentiment = true;
+      }
+
+      refreshSentimentMeters();
+
+      if (matchedSentiment) {
+        const cdRemaining = (state.sentimentCooldownSec * 1000) - (now - state.lastSentimentTriggerAt);
+        if (cdRemaining <= 0) {
+          if (state.winTimestamps.length >= state.sentimentThreshold) {
+            state.lastSentimentTriggerAt = now;
+            state.winTimestamps = [];
+            state.lossTimestamps = [];
+            refreshSentimentMeters();
+            appendChatMessage('SYSTEM', `🔥 <b>CROWD SENTIMENT TRIPPED:</b> ${state.sentimentThreshold}+ Victory Hype messages in ${state.sentimentWindowSec}s &rarr; Auto-firing <b>[GAME_VICTORY]</b>!`, 'SYSTEM');
+            fireTrigger('GAME_VICTORY', 'Chat Crowd Hype', 'Crowd spammed W / GG / CLUTCH!');
+            return true;
+          }
+          if (state.lossTimestamps.length >= state.sentimentThreshold) {
+            state.lastSentimentTriggerAt = now;
+            state.winTimestamps = [];
+            state.lossTimestamps = [];
+            refreshSentimentMeters();
+            appendChatMessage('SYSTEM', `💀 <b>CROWD SENTIMENT TRIPPED:</b> ${state.sentimentThreshold}+ Defeat/F messages in ${state.sentimentWindowSec}s &rarr; Auto-firing <b>[GAME_DEFEAT]</b>!`, 'SYSTEM');
+            fireTrigger('GAME_DEFEAT', 'Chat Crowd F-Spam', 'Crowd spammed F / RIP / WHIFF!');
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    function refreshSentimentMeters() {
+      const now = Date.now();
+      const cutoff = now - (state.sentimentWindowSec * 1000);
+      state.winTimestamps = state.winTimestamps.filter(t => t >= cutoff);
+      state.lossTimestamps = state.lossTimestamps.filter(t => t >= cutoff);
+
+      const winCount = state.winTimestamps.length;
+      const lossCount = state.lossTimestamps.length;
+      const thresh = state.sentimentThreshold;
+
+      const winLabel = document.getElementById('winCountLabel');
+      const lossLabel = document.getElementById('lossCountLabel');
+      if (winLabel) winLabel.textContent = winCount;
+      if (lossLabel) lossLabel.textContent = lossCount;
+
+      const winPct = Math.min(100, Math.round((winCount / thresh) * 100));
+      const lossPct = Math.min(100, Math.round((lossCount / thresh) * 100));
+      const winBar = document.getElementById('winMeterBar');
+      const lossBar = document.getElementById('lossMeterBar');
+      if (winBar) winBar.style.width = `${winPct}%`;
+      if (lossBar) lossBar.style.width = `${lossPct}%`;
+
+      const badge = document.getElementById('sentimentStatusBadge');
+      if (!badge) return;
+      const cdLeft = Math.ceil(((state.sentimentCooldownSec * 1000) - (now - state.lastSentimentTriggerAt)) / 1000);
+      if (cdLeft > 0 && state.lastSentimentTriggerAt > 0) {
+        badge.textContent = `COOLDOWN (${cdLeft}s)`;
+        badge.className = 'px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono text-amber-300';
+      } else {
+        badge.textContent = 'MONITORING';
+        badge.className = 'px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-mono text-emerald-300';
+      }
+    }
+
+    setInterval(refreshSentimentMeters, 1000);
+
+    function simulateCrowdBurst(mode = 'VICTORY') {
+      state.lastSentimentTriggerAt = 0;
+      const winSample = [
+        ['NeonSniper', 'GG EASY CLUTCH!!'],
+        ['ArcadeQueen', 'W STREAMER MASSIVE W'],
+        ['Turbo_99', 'POG WHAT A SAVE!!'],
+        ['CyberKat', 'LETS GO GOAT!!'],
+        ['PixelKnight', 'GGS HUGE W']
+      ];
+      const lossSample = [
+        ['SynthWave_X', 'F in chat boys'],
+        ['GlitchRunner', 'RIP what a whiff!!'],
+        ['RetroGhost', 'massive L throw'],
+        ['ByteFan_01', 'F UNLUCKY CHOKE'],
+        ['VortexKid', 'RIPPPP L']
+      ];
+
+      const burst = mode === 'VICTORY' ? winSample : lossSample;
+      burst.forEach((entry, idx) => {
+        setTimeout(() => {
+          const [u, m] = entry;
+          appendChatMessage(u, m, 'USER');
+          evaluateChatCommandOrSentiment(u, m, false);
+        }, idx * 240);
+      });
+    }
+
+    // =========================================================================
+    // 7. PRIORITY EVENT COOLDOWN QUEUE & TRIGGER DISPATCHER
+    // =========================================================================
+    function updateQueueConfig() {
+      const cd = parseInt(document.getElementById('cooldownSlider')?.value, 10) || 0;
+      const maxQ = parseInt(document.getElementById('maxQueueSlider')?.value, 10) || 8;
+      state.chatCooldownSec = cd;
+      state.maxQueueSize = maxQ;
+      setElText('cooldownValLabel', `${cd}s`);
+      setElText('maxQueueValLabel', maxQ);
+    }
+
+    function renderQueueUI() {
+      const badge = document.getElementById('queueCountBadge');
+      const container = document.getElementById('queueListContainer');
+      if (!badge || !container) return;
+
+      badge.textContent = `${state.eventQueue.length} Queued`;
+      if (state.eventQueue.length === 0) {
+        container.innerHTML = `<div class="text-slate-500 italic">Queue idle — high-priority Cheers &amp; Raids jump ahead of chat.</div>`;
+        return;
+      }
+
+      container.innerHTML = state.eventQueue.map((ev, i) => `
+        <div class="flex items-center justify-between px-2 py-1 rounded bg-slate-900 border border-slate-800">
+          <span class="text-cyber-cyan font-bold">#${i + 1} [${ev.type}]</span>
+          <span class="text-slate-300 truncate max-w-[220px]">${ev.username}: ${ev.summary}</span>
+        </div>
+      `).join('');
+    }
+
+    function enqueueStreamEvent(eventObj) {
+      const priority = EVENT_PRIORITIES[eventObj.type] || 10;
+      eventObj.priority = priority;
+
+      // Enforce chat cooldown on standard CHAT messages
+      if (eventObj.type === 'CHAT') {
+        const now = Date.now();
+        if (now - state.lastChatProcessedAt < state.chatCooldownSec * 1000 && state.isProcessingQueue) {
+          if (state.eventQueue.length >= state.maxQueueSize) return;
+        }
+      }
+
+      if (state.eventQueue.length >= state.maxQueueSize) {
+        state.eventQueue.pop();
+      }
+
+      state.eventQueue.push(eventObj);
+      state.eventQueue.sort((a, b) => b.priority - a.priority);
+      renderQueueUI();
+      processNextInQueue();
+    }
+
+    function skipCurrentEvent() {
+      if (state.activeAudioSource) {
+        try { state.activeAudioSource.stop(); } catch (e) {}
+      }
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      setAvatarTalking(false);
+    }
+
+    function clearEventQueue() {
+      state.eventQueue = [];
+      renderQueueUI();
+      skipCurrentEvent();
+    }
+
+    async function processNextInQueue() {
+      if (state.isProcessingQueue || state.eventQueue.length === 0) return;
+      state.isProcessingQueue = true;
+
+      while (state.eventQueue.length > 0) {
+        const nextEv = state.eventQueue.shift();
+        renderQueueUI();
+        if (nextEv.type === 'CHAT') {
+          state.lastChatProcessedAt = Date.now();
+        }
+        await executeStreamEvent(nextEv);
+      }
+
+      state.isProcessingQueue = false;
+    }
+
+    async function applyBrainResponse(res, forceVoice = null, forceExpr = null, forceGeminiVoice = null) {
+      const expr = forceExpr || res.expression || 'SMUG_GRIN';
+      const voiceMod = forceVoice || res.voiceMod || 'NORMAL';
+      const autoSwitch = document.getElementById('autoDynamicVoiceToggle')?.checked ?? false;
+      const gVoice = (autoSwitch && forceGeminiVoice) ? forceGeminiVoice : state.geminiVoice;
+
+      state.voiceMode = voiceMod;
+      setAvatarExpression(expr);
+      document.getElementById('flagVoice').textContent = `[VOICE: ${gVoice.toUpperCase()} // ${state.voiceSpeed.toFixed(2)}x]`;
+      document.getElementById('subtitleText').textContent = `"${res.reply}"`;
+
+      appendChatMessage('BYTE_AI', res.reply, 'BOT');
+      await speakWithGeminiTTS(res.reply, gVoice, voiceMod);
+    }
+
+    async function executeStreamEvent(ev) {
+      const { type, username, summary, bits } = ev;
+      document.getElementById('lastTriggerLabel').textContent = `TRIGGER: ${type}`;
+
+      if (type === 'CHEER_LOW') {
+        playSynthSfx('CHEER_LOW');
+        spawnParticleBurst('#00f3ff', '#fcee0a');
+        showAlertBanner(`${username} CHEERED ${bits || 100} BITS!`, 'fa-solid fa-gem text-cyber-cyan');
+        const fallbackText = FALLBACK_BANTER.CHEER_LOW[Math.floor(Math.random() * FALLBACK_BANTER.CHEER_LOW.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: CHEER_LOW] Viewer "${username}" just cheered ${bits || 100} bits! Message: "${summary}". Express quick pitch-up gratitude!`,
+          { reply: fallbackText, expression: 'HYPE_STAR', voiceMod: 'PITCH_UP' }
+        );
+        await applyBrainResponse(res, 'PITCH_UP', 'HYPE_STAR', 'Puck');
+      } else if (type === 'CHEER_HIGH') {
+        playSynthSfx('CHEER_HIGH');
+        spawnParticleBurst('#ff007f', '#fcee0a');
+        showAlertBanner(`MEGA CHEER! ${username} DROPPED ${bits || 5000} BITS!!`, 'fa-solid fa-bolt text-cyber-pink');
+        const fallbackText = FALLBACK_BANTER.CHEER_HIGH[Math.floor(Math.random() * FALLBACK_BANTER.CHEER_HIGH.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: CHEER_HIGH] Viewer "${username}" just dropped a MASSIVE ${bits || 5000} bit cheer! Message: "${summary}". React with dramatic boss-mode awe!`,
+          { reply: fallbackText, expression: 'BOSS_MODE', voiceMod: 'ROBOT_DEEP' }
+        );
+        await applyBrainResponse(res, 'ROBOT_DEEP', 'BOSS_MODE', 'Fenrir');
+      } else if (type === 'REWARD_BACKGROUND') {
+        const currentIdx = state.bgOrder.indexOf(state.background);
+        const nextBg = state.bgOrder[(currentIdx + 1) % state.bgOrder.length];
+        setStageTheme(nextBg, true);
+        showAlertBanner(`${username} SHIFTED STAGE TO ${nextBg}!`, 'fa-solid fa-wand-magic-sparkles text-purple-400');
+        const fallbackText = FALLBACK_BANTER.REWARD_BACKGROUND[nextBg] || FALLBACK_BANTER.REWARD_BACKGROUND.NEON_ALLEY;
+        const res = await callGeminiBrain(
+          `[TRIGGER: REWARD_BACKGROUND] Viewer "${username}" redeemed a channel point reward shifting the background environment to "${nextBg}". Comment on the sudden spatial transition in character!`,
+          { reply: fallbackText, expression: 'GLITCH_OVERLOAD', voiceMod: 'NORMAL' }
+        );
+        await applyBrainResponse(res, 'NORMAL', 'GLITCH_OVERLOAD', null);
+      } else if (type === 'RAID_SUB') {
+        playSynthSfx('CHEER_HIGH');
+        spawnParticleBurst('#fcee0a', '#00f3ff');
+        showAlertBanner(`INCOMING RAID / SUB FROM ${username}!!`, 'fa-solid fa-rocket text-cyber-yellow');
+        const fallbackText = FALLBACK_BANTER.RAID_SUB[Math.floor(Math.random() * FALLBACK_BANTER.RAID_SUB.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: RAID / NEW_SUB] "${username}" just raided or subscribed (${summary})! Deliver a high-energy welcome shoutout!`,
+          { reply: fallbackText, expression: 'HYPE_STAR', voiceMod: 'PITCH_UP' }
+        );
+        await applyBrainResponse(res, 'PITCH_UP', 'HYPE_STAR', 'Kore');
+      } else if (type === 'GAME_VICTORY') {
+        playSynthSfx('CHEER_LOW');
+        spawnParticleBurst('#10b981', '#fcee0a');
+        showAlertBanner(`VICTORY DETECTED // (${username})`, 'fa-solid fa-trophy text-emerald-400');
+        const fallbackText = FALLBACK_BANTER.GAME_VICTORY[Math.floor(Math.random() * FALLBACK_BANTER.GAME_VICTORY.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: GAME_VICTORY] We just won the match (${summary})! Shift to a smug celebratory expression and hype up the win!`,
+          { reply: fallbackText, expression: 'SMUG_GRIN', voiceMod: 'NORMAL' }
+        );
+        await applyBrainResponse(res, 'NORMAL', 'SMUG_GRIN', null);
+      } else if (type === 'GAME_DEFEAT') {
+        playSynthSfx('DEFEAT');
+        spawnParticleBurst('#f43f5e', '#ff007f');
+        showAlertBanner(`DEFEAT DETECTED // PRESS F (${username})`, 'fa-solid fa-skull text-rose-500');
+        const fallbackText = FALLBACK_BANTER.GAME_DEFEAT[Math.floor(Math.random() * FALLBACK_BANTER.GAME_DEFEAT.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: GAME_DEFEAT] The streamer just lost the round (${summary})! Shift into dramatic panic and make a funny excuse!`,
+          { reply: fallbackText, expression: 'DRAMATIC_PANIC', voiceMod: 'PITCH_UP' }
+        );
+        await applyBrainResponse(res, 'PITCH_UP', 'DRAMATIC_PANIC', null);
+      } else if (type === 'TROLL_DEFLECT') {
+        playSynthSfx('PING');
+        showAlertBanner(`MOD SHIELD DEFLECTED TROLL BAIT`, 'fa-solid fa-shield-halved text-emerald-400');
+        const fallbackText = FALLBACK_BANTER.TROLL_DEFLECT[Math.floor(Math.random() * FALLBACK_BANTER.TROLL_DEFLECT.length)];
+        const res = await callGeminiBrain(
+          `[TRIGGER: SAFETY_MOD_FILTER] A user ("${username}") sent low-effort troll bait. Do NOT repeat any insult; deliver a sharp, witty, safe comeback keeping the stream positive.`,
+          { reply: fallbackText, expression: 'ANNOYED_SQUINT', voiceMod: 'NORMAL' }
+        );
+        await applyBrainResponse(res, 'NORMAL', 'ANNOYED_SQUINT', null);
+      } else {
+        playSynthSfx('PING');
+        const res = await callGeminiBrain(
+          `Live Twitch chat message from viewer "${username}": "${summary}". Respond directly to ${username} in character!`,
+          {
+            reply: `Yo ${username}! Copy that on my radar—chat is absolutely locked in today!`,
+            expression: 'SMUG_GRIN',
+            voiceMod: 'NORMAL'
+          }
+        );
+        await applyBrainResponse(res);
+      }
+    }
+
+    function fireTrigger(triggerType, customUser = null, customSummary = null, bitsAmount = null) {
+      const defaultUsers = {
+        CHEER_LOW: 'PixelKnight_99',
+        CHEER_HIGH: 'CyberWhale_VIP',
+        REWARD_BACKGROUND: 'NeonShifter',
+        RAID_SUB: 'SynthWave_Squad',
+        GAME_VICTORY: 'Match_Telemetry',
+        GAME_DEFEAT: 'Match_Telemetry'
+      };
+      const user = customUser || defaultUsers[triggerType] || 'StreamViewer';
+      const summary = customSummary || `Triggered ${triggerType}`;
+      enqueueStreamEvent({
+        type: triggerType,
+        username: user,
+        summary,
+        bits: bitsAmount
+      });
+    }
+
+    // =========================================================================
+    // 8. CHAT FEED, MODERATION FILTER & PRESET HANDLERS
+    // =========================================================================
+    function appendChatMessage(username, text, role = 'USER') {
+      const feed = document.getElementById('chatFeed');
+      if (!feed) return;
+
+      const row = document.createElement('div');
+      if (role === 'BOT') {
+        row.className = 'p-2 rounded-lg bg-cyan-950/50 border border-cyan-500/40 text-cyan-100';
+        row.innerHTML = `<span class="text-cyber-cyan font-bold">[BYTE_AI]:</span> ${text}`;
+      } else if (role === 'MOD_SHIELD') {
+        row.className = 'p-1.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300';
+        row.innerHTML = `<span class="font-bold">🛡️ [AUTO-MOD BLOCKED ${username}]:</span> <span class="line-through opacity-60">${text}</span>`;
+      } else if (role === 'SYSTEM') {
+        row.className = 'p-1.5 rounded bg-slate-900 border border-slate-700 text-amber-300';
+        row.innerHTML = text;
+      } else {
+        row.className = 'px-2 py-1 rounded bg-slate-900/60 text-slate-200';
+        row.innerHTML = `<span class="text-purple-400 font-bold">${username}:</span> ${text}`;
+      }
+
+      feed.appendChild(row);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function isToxicBait(msg) {
+      const pattern = /\b(trash|garbage|uninstall|loser|stupid|idiot|sucks|bot is garbage|worst streamer|noob)\b/i;
+      return pattern.test(msg);
+    }
+
+    function processViewerChat(username, message, isPrivilegedUser = true) {
+      if (message.trim().startsWith('!')) {
+        appendChatMessage(username, message, 'USER');
+        evaluateChatCommandOrSentiment(username, message, isPrivilegedUser);
+        return;
+      }
+
+      if (isToxicBait(message)) {
+        appendChatMessage(username, message, 'MOD_SHIELD');
+        enqueueStreamEvent({
+          type: 'TROLL_DEFLECT',
+          username,
+          summary: 'Toxic bait intercepted'
+        });
+      } else {
+        appendChatMessage(username, message, 'USER');
+        const trippedSentiment = evaluateChatCommandOrSentiment(username, message, isPrivilegedUser);
+        if (!trippedSentiment) {
+          enqueueStreamEvent({
+            type: 'CHAT',
+            username,
+            summary: message
+          });
+        }
+      }
+    }
+
+    function sendPresetChat(username, message, isMod = true) {
+      document.getElementById('chatUsername').value = username;
+      document.getElementById('chatMessageInput').value = message;
+      processViewerChat(username, message, isMod);
+      document.getElementById('chatMessageInput').value = '';
+    }
+
+    function handleChatSubmit(e) {
+      e.preventDefault();
+      const user = document.getElementById('chatUsername').value.trim() || 'TwitchChatter';
+      const msg = document.getElementById('chatMessageInput').value.trim();
+      if (!msg) return;
+      processViewerChat(user, msg, true);
+      document.getElementById('chatMessageInput').value = '';
+    }
+
+    // =========================================================================
+    // 9. LIVE TWITCH IRC CONNECTION (TMI.JS + NATIVE WEBSOCKET FALLBACK)
+    // =========================================================================
+    let tmiClient = null;
+    let ircSocket = null;
+
+    function updateTwitchStatusUI(status, channel = '') {
+      const badge = document.getElementById('twitchStatusBadge');
+      const btn = document.getElementById('twitchConnectBtn');
+      if (!badge || !btn) return;
+
+      if (status === 'CONNECTED') {
+        state.twitchConnected = true;
+        badge.textContent = `LIVE: #${channel}`;
+        badge.className = 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/40';
+        btn.innerHTML = `<i class="fa-solid fa-link-slash"></i> Disconnect`;
+        btn.className = 'px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-bold transition flex items-center gap-1.5 shrink-0';
+      } else if (status === 'CONNECTING') {
+        badge.textContent = 'CONNECTING...';
+        badge.className = 'px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/40 animate-pulse';
+      } else {
+        state.twitchConnected = false;
+        badge.textContent = 'DISCONNECTED';
+        badge.className = 'px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700';
+        btn.innerHTML = `<i class="fa-solid fa-plug"></i> Connect Live Chat`;
+        btn.className = 'px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-mono text-xs font-bold transition flex items-center gap-1.5 shrink-0';
+      }
+    }
+
+    function disconnectTwitch() {
+      if (tmiClient) {
+        try { tmiClient.disconnect(); } catch (e) {}
+        tmiClient = null;
+      }
+      if (ircSocket) {
+        try { ircSocket.close(); } catch (e) {}
+        ircSocket = null;
+      }
+      updateTwitchStatusUI('DISCONNECTED');
+    }
+
+    function connectNativeTwitchIRC(channelName) {
+      document.getElementById('twitchEngineTag').textContent = 'Engine: Native WS IRC';
+      ircSocket = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+      ircSocket.onopen = () => {
+        ircSocket.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ircSocket.send('PASS SCHMOOPIIE');
+        ircSocket.send(`NICK justinfan${Math.floor(Math.random() * 89999 + 10000)}`);
+        ircSocket.send(`JOIN #${channelName}`);
+        updateTwitchStatusUI('CONNECTED', channelName);
+        appendChatMessage('SYSTEM', `🟣 Connected to live Twitch channel <b>#${channelName}</b> via Native WebSocket IRC!`, 'SYSTEM');
+      };
+
+      ircSocket.onmessage = (event) => {
+        const lines = event.data.split('\r\n');
+        lines.forEach((line) => {
+          if (line.startsWith('PING')) {
+            ircSocket.send('PONG :tmi.twitch.tv');
+            return;
+          }
+          if (line.includes('PRIVMSG')) {
+            const tags = {};
+            if (line.startsWith('@')) {
+              const tagPart = line.split(' ')[0].substring(1);
+              tagPart.split(';').forEach(pair => {
+                const [k, v] = pair.split('=');
+                tags[k] = v;
+              });
+            }
+            const user = tags['display-name'] || 'TwitchChatter';
+            const msgMatch = line.match(/PRIVMSG #[^ ]+ :(.+)$/);
+            const message = msgMatch ? msgMatch[1] : '';
+            if (!message) return;
+
+            const isPrivileged = Boolean(tags['mod'] === '1' || (tags['badges'] && tags['badges'].includes('broadcaster')) || user.toLowerCase() === channelName);
+
+            if (tags['bits']) {
+              const bits = parseInt(tags['bits'], 10);
+              fireTrigger(bits >= 500 ? 'CHEER_HIGH' : 'CHEER_LOW', user, message, bits);
+            } else if (tags['custom-reward-id']) {
+              fireTrigger('REWARD_BACKGROUND', user, message);
+            } else {
+              processViewerChat(user, message, isPrivileged);
+            }
+          }
+        });
+      };
+
+      ircSocket.onerror = () => updateTwitchStatusUI('DISCONNECTED');
+    }
+
+    function handleTwitchConnect(e) {
+      if (e) e.preventDefault();
+      if (state.twitchConnected) {
+        disconnectTwitch();
+        return;
+      }
+
+      const rawChannel = document.getElementById('twitchChannelInput').value.trim().replace(/^#/, '').toLowerCase();
+      if (!rawChannel) return;
+
+      state.twitchChannel = rawChannel;
+      savePersistentConfig();
+      updateObsUrlPreview();
+      updateTwitchStatusUI('CONNECTING');
+
+      if (typeof window.tmi !== 'undefined') {
+        try {
+          document.getElementById('twitchEngineTag').textContent = 'Engine: tmi.js v1.8.5';
+          tmiClient = new window.tmi.Client({
+            connection: { secure: true, reconnect: true },
+            channels: [rawChannel]
+          });
+
+          tmiClient.on('connected', () => {
+            updateTwitchStatusUI('CONNECTED', rawChannel);
+            appendChatMessage('SYSTEM', `🟣 Connected to live Twitch channel <b>#${rawChannel}</b> via tmi.js!`, 'SYSTEM');
+            showAlertBanner(`TWITCH IRC CONNECTED: #${rawChannel}`, 'fa-brands fa-twitch text-purple-400');
+          });
+
+          tmiClient.on('message', (channel, tags, message, self) => {
+            if (self) return;
+            const user = tags['display-name'] || tags.username || 'TwitchViewer';
+            const isPrivileged = Boolean(tags.mod || (tags.badges && tags.badges.broadcaster) || user.toLowerCase() === rawChannel);
+            if (tags['custom-reward-id']) {
+              fireTrigger('REWARD_BACKGROUND', user, message);
+            } else {
+              processViewerChat(user, message, isPrivileged);
+            }
+          });
+
+          tmiClient.on('cheer', (channel, userstate, message) => {
+            const bits = parseInt(userstate.bits || '100', 10);
+            const user = userstate['display-name'] || userstate.username || 'BitCheerer';
+            fireTrigger(bits >= 500 ? 'CHEER_HIGH' : 'CHEER_LOW', user, message, bits);
+          });
+
+          tmiClient.on('raided', (channel, username, viewers) => {
+            fireTrigger('RAID_SUB', username, `Raiding with ${viewers} viewers!`);
+          });
+
+          tmiClient.on('subscription', (channel, username) => {
+            fireTrigger('RAID_SUB', username, 'New Channel Subscriber!');
+          });
+
+          tmiClient.connect().catch(() => connectNativeTwitchIRC(rawChannel));
+        } catch (err) {
+          connectNativeTwitchIRC(rawChannel);
+        }
+      } else {
+        connectNativeTwitchIRC(rawChannel);
+      }
+    }
+
+    // =========================================================================
+    // 10. OBS OVERLAY MODE, URL PARAMS & LOCALSTORAGE PERSISTENCE
+    // =========================================================================
+    function savePersistentConfig() {
+      try {
+        const cfg = {
+          twitchChannel: document.getElementById('twitchChannelInput')?.value?.trim() || '',
+          geminiVoice: document.getElementById('geminiVoiceSelect')?.value || 'Achird',
+          voiceStyle: document.getElementById('voiceStyleSelect')?.value || 'NATURAL_BRISK',
+          voiceSpeed: parseFloat(document.getElementById('voiceSpeedSlider')?.value || '1.15'),
+          autoVoice: document.getElementById('autoDynamicVoiceToggle')?.checked ?? false,
+          modOnlyCommands: document.getElementById('modOnlyCommandsToggle')?.checked ?? false,
+          sentimentThreshold: parseInt(document.getElementById('sentimentThreshSlider')?.value || '4', 10),
+          sentimentWindowSec: parseInt(document.getElementById('sentimentWindowSlider')?.value || '12', 10),
+          sentimentCooldownSec: parseInt(document.getElementById('sentimentCdSlider')?.value || '30', 10),
+          winKeywords: document.getElementById('winKeywordsInput')?.value || '',
+          lossKeywords: document.getElementById('lossKeywordsInput')?.value || '',
+          customApiKey: document.getElementById('customApiKeyInput')?.value?.trim() || ''
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+        const badge = document.getElementById('configSavedBadge');
+        if (badge) {
+          badge.textContent = 'Saved ✓';
+          setTimeout(() => { badge.textContent = 'Auto-Saved'; }, 1500);
+        }
+      } catch (e) {}
+    }
+
+    function loadPersistentConfigAndUrlParams() {
+      const validVoices = [
+        'Achird', 'Zubenelgenubi', 'Callirrhoe', 'Sulafat', 'Schedar',
+        'Despina', 'Vindemiatrix', 'Zephyr', 'Erinome', 'Sadachbia',
+        'Gacrux', 'Puck', 'Kore', 'Fenrir', 'Aoede'
+      ];
+      const setVal = (id, v) => {
+        const el = document.getElementById(id);
+        if (el && v !== undefined && v !== null) el.value = v;
+      };
+      const setChk = (id, v) => {
+        const el = document.getElementById(id);
+        if (el && typeof v === 'boolean') el.checked = v;
+      };
+
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const cfg = JSON.parse(raw);
+          if (cfg.twitchChannel) setVal('twitchChannelInput', cfg.twitchChannel);
+          if (cfg.geminiVoice && validVoices.includes(cfg.geminiVoice)) {
+            setVal('geminiVoiceSelect', cfg.geminiVoice);
+            state.geminiVoice = cfg.geminiVoice;
+          }
+          if (cfg.voiceStyle) {
+            setVal('voiceStyleSelect', cfg.voiceStyle);
+            state.voiceStyle = cfg.voiceStyle;
+          }
+          if (cfg.voiceSpeed) {
+            setVal('voiceSpeedSlider', cfg.voiceSpeed);
+            state.voiceSpeed = parseFloat(cfg.voiceSpeed);
+          }
+          setChk('autoDynamicVoiceToggle', cfg.autoVoice);
+          setChk('modOnlyCommandsToggle', cfg.modOnlyCommands);
+          if (cfg.sentimentThreshold) setVal('sentimentThreshSlider', cfg.sentimentThreshold);
+          if (cfg.sentimentWindowSec) setVal('sentimentWindowSlider', cfg.sentimentWindowSec);
+          if (cfg.sentimentCooldownSec) setVal('sentimentCdSlider', cfg.sentimentCooldownSec);
+          if (cfg.winKeywords) setVal('winKeywordsInput', cfg.winKeywords);
+          if (cfg.lossKeywords) setVal('lossKeywordsInput', cfg.lossKeywords);
+          if (cfg.customApiKey) setVal('customApiKeyInput', cfg.customApiKey);
+        }
+      } catch (e) {}
+
+      const params = new URLSearchParams(window.location.search);
+      const urlChannel = params.get('channel');
+      const urlVoice = params.get('voice');
+      const urlSpeed = params.get('speed');
+      const urlAutoVoice = params.get('autovoice');
+      const urlObs = params.get('obs');
+      const urlGreen = params.get('greenscreen');
+
+      if (urlChannel) {
+        setVal('twitchChannelInput', urlChannel);
+      }
+      if (urlVoice && validVoices.includes(urlVoice)) {
+        setVal('geminiVoiceSelect', urlVoice);
+        state.geminiVoice = urlVoice;
+      }
+      if (urlSpeed && !isNaN(parseFloat(urlSpeed))) {
+        setVal('voiceSpeedSlider', parseFloat(urlSpeed));
+        state.voiceSpeed = parseFloat(urlSpeed);
+      }
+      if (urlAutoVoice !== null) {
+        setChk('autoDynamicVoiceToggle', urlAutoVoice === '1' || urlAutoVoice === 'true');
+      }
+      if (urlGreen === '1' || urlGreen === 'true') {
+        setStageTheme('CHROMA_GREEN', false);
+        setChk('obsUrlGreenToggle', true);
+      }
+      if (urlObs === '1' || urlObs === 'true') {
+        if (!state.obsCleanMode) toggleObsMode();
+      }
+
+      updateVoiceSelection();
+      updateSentimentConfig();
+      updateObsUrlPreview();
+
+      if (urlChannel) {
+        setTimeout(() => {
+          handleTwitchConnect({ preventDefault: () => {} });
+        }, 400);
+      }
+    }
+
+    function updateObsUrlPreview() {
+      const baseUrl = window.location.href.split('?')[0];
+      const ch = document.getElementById('twitchChannelInput')?.value?.trim() || 'your_channel';
+      const voice = document.getElementById('geminiVoiceSelect')?.value || 'Achird';
+      const speed = parseFloat(document.getElementById('voiceSpeedSlider')?.value || '1.15').toFixed(2);
+      const autoV = document.getElementById('autoDynamicVoiceToggle')?.checked ? '1' : '0';
+      const cleanObs = document.getElementById('obsUrlCleanToggle')?.checked ? '1' : '0';
+      const green = document.getElementById('obsUrlGreenToggle')?.checked ? '1' : '0';
+
+      const query = `?channel=${encodeURIComponent(ch)}&obs=${cleanObs}&greenscreen=${green}&voice=${encodeURIComponent(voice)}&speed=${speed}&autovoice=${autoV}`;
+      const inputEl = document.getElementById('obsUrlPreviewInput');
+      if (inputEl) inputEl.value = `${baseUrl}${query}`;
+    }
+
+    function copyObsLaunchUrl() {
+      updateObsUrlPreview();
+      const inputEl = document.getElementById('obsUrlPreviewInput');
+      if (!inputEl) return;
+      inputEl.select();
+      document.execCommand('copy');
+      const toast = document.getElementById('copyConfirmToast');
+      if (toast) {
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3000);
+      }
+    }
+
+    function toggleObsMode() {
+      state.obsCleanMode = !state.obsCleanMode;
+      const header = document.getElementById('appHeader');
+      const consolePanel = document.getElementById('controlConsole');
+      const exitBtn = document.getElementById('exitObsBtn');
+
+      if (state.obsCleanMode) {
+        header.classList.add('hidden');
+        consolePanel.classList.add('hidden');
+        exitBtn.classList.remove('hidden');
+      } else {
+        header.classList.remove('hidden');
+        consolePanel.classList.remove('hidden');
+        exitBtn.classList.add('hidden');
+      }
+      setTimeout(resizeCanvas, 50);
+    }
+
+    window.onload = function () {
+      resizeCanvas();
+      initAmbientParticles();
+      renderStageCanvas();
+      setAvatarExpression('SMUG_GRIN');
+      renderQueueUI();
+      loadPersistentConfigAndUrlParams();
+
+      appendChatMessage('SYSTEM', '⚡ Byte AI Co-Host v4.0 Production Stream Build initialized. Auto Win/Loss Sentiment & Commands active!', 'SYSTEM');
+      appendChatMessage('Retro_Kat', 'Try clicking "Simulate GG / W Burst" or "!win Cmd" to watch Byte auto-detect match outcomes!', 'USER');
+    };
+  </script>
+</body>
+</html>
